@@ -1,2 +1,7 @@
 __pycache__
 ignored
+*.mp3
+*.wav
+*.mp4
+*.m4a
+*.png
