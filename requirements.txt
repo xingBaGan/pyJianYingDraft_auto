@@ -1,3 +1,7 @@
 pymediainfo
 imageio
 uiautomation>=2
+datasets
+librosa
+soundfile==0.12.1
+transformers

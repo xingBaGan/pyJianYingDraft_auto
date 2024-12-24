@@ -6,22 +6,29 @@ import json
 from pydub import AudioSegment
 import shutil
 import math
+import asyncio
+from exports import export_video
 
 voice_track_name = '语音'
 bgm_track_name = '背景音乐'
-project_name = '戴尔·卡耐基'
+project_name = '吉姆·罗杰斯'
 video_track_name = '视频'
 sentence_track_name = '文本'
 sentence_count = 30
-gap_rate = 0.4
+gap_rate = 0.5
 limit_len = 85
 start_index = 0
-total_project_count = 1
-bg_random_index = 0
-volume = 0.3
+total_project_count = 5
+bg_random_index = 2
+reverse_flag = 1
+volume = 0.2
+export_filename = 'data.json'
+export_folder = 'I:\\福利'
 
+save_base_path = os.path.join(os.path.dirname(__file__), project_name)
+
+data_path = os.path.join(save_base_path, export_filename)
 def tts(text, index):
-    save_base_path = os.path.join(os.path.dirname(__file__), project_name)
     if not os.path.exists(save_base_path):
         os.makedirs(save_base_path)
     audio_path = os.path.join(save_base_path, f"audio_{index}.wav")
@@ -44,7 +51,7 @@ def tts(text, index):
     shutil.copy(result[0], audio_path)
     return audio_path
 
-def main():
+async def main():
     asset_dir = os.path.join(os.path.dirname(__file__), project_name)
     base_dir = os.path.dirname(__file__)
     bg_dir = os.path.join(os.path.dirname(__file__), 'bgm')
@@ -65,9 +72,9 @@ def main():
             .add_track(draft.Track_type.video, video_track_name) \
             .add_track(draft.Track_type.text, sentence_track_name)
 
-        edit_project(script, sentences, asset_dir, i, bg_path)
+        await edit_project(script, sentences, asset_dir, i, bg_path)
 
-def edit_project(script, sentences, asset_dir, id, bg_path):
+async def edit_project(script, sentences, asset_dir, id, bg_path):
     start_time = 0
     for index, sentence in enumerate(sentences[id * sentence_count:(id + 1) * sentence_count]):
         base_index = id * sentence_count  + index
@@ -87,12 +94,11 @@ def edit_project(script, sentences, asset_dir, id, bg_path):
         # 修复：确保时间范围不超过素材时长，向下取整
         audio_duration = math.floor(audio_duration * 10) / 10  # 保留一位小数，向下取整
         print('time',audio_duration)
-        gap_time = audio_duration * gap_rate
+        gap_time = audio_duration * gap_rate if audio_duration >= 2 else 1 + audio_duration * gap_rate
         total_time = audio_duration + gap_time
         audio_segment = draft.Audio_segment(audio_material, trange(f"{start_time}s", f"{audio_duration}s"))
         script.add_segment(audio_segment, track_name=voice_track_name)
         sentence, max_len = add_enter(sentence)
-        reverse_flag = 1
         transform_x = reverse_flag * (0.15 - max_len * 0.04)
         text_segment = draft.Text_segment(sentence, trange(f"{start_time}s", f"{total_time}s"),  # 文本将持续整个视频（注意script.duration在上方片段添加到轨道后才会自动更新）
                                         style=draft.Text_style(color=(255.0, 255.0, 255.0), align=1, bold=False),
@@ -129,12 +135,57 @@ def edit_project(script, sentences, asset_dir, id, bg_path):
     bgm_segment = draft.Audio_segment(bgm_material, trange(f"{(size - 1) * bgm_duration}s", f"{rest_time}s"), volume=volume)
     script.add_segment(bgm_segment, track_name=bgm_track_name)
     dir_path = r"I:\\uploads_jianying\\JianyingPro Drafts"
-    base_dir = os.path.join(dir_path, f"{project_name}{id+1}")
+    draft_name = f"{project_name}{id+1}"
+    base_dir = os.path.join(dir_path, draft_name)
     # 保存草稿（覆盖掉原有的draft_content.json）
     script.dump(os.path.join(base_dir, "draft_content.json"))
-    
+    export_path = os.path.join(export_folder, f"{draft_name}.mp4")
+    # 如果不存在，就创建
+    if not os.path.exists(data_path):
+        with open(data_path, 'w', encoding='utf-8') as f:
+            json.dump([], f)
+    data = {
+        "filename": f"{draft_name}.mp4",
+        "id": id,
+        "exported": False,
+    }
+    print(export_path, get_data_item(id))
+    if os.path.exists(export_path) or get_data_item(id)["exported"] == True:
+        data["exported"] = True
+    else:
+        print('-------------export---------')
+        try:
+            await export_video(draft_name)
+            data["exported"] = True
+        except Exception as e:
+            print(e)
+        
+    save_data_item(data)
     # ctrl = draft.Jianying_controller()
     # ctrl.export_draft(f"{project_name}{id+1}", "I:\\福利")
+
+def get_data_item(id):
+    with open(data_path, 'r', encoding='utf-8') as f:
+        data_list = json.load(f)
+    for item in data_list:
+        if item["id"] == id:
+            return item
+    return None
+
+def save_data_item(data):
+    with open(data_path, 'r', encoding='utf-8') as f:
+        data_list = json.load(f)
+    
+    # 方法1: 使用enumerate找到索引后替换
+    for i, item in enumerate(data_list):
+        if item["id"] == data["id"]:
+            data_list[i] = data
+            break
+    else:  # 如果没找到匹配项,就添加新数据
+        data_list.append(data)
+
+    with open(data_path, 'w', encoding='utf-8') as f:
+        json.dump(data_list, f, ensure_ascii=False, indent=4)
 
 def add_enter(sentence):
     result = ""
@@ -167,7 +218,7 @@ def add_enter(sentence):
     return result, max_len
 
 if __name__ == "__main__":
-    main()
+    asyncio.run(main())
     # voice = tts("梦境所反映的画面、幻想等，都是做梦者心中所向")
     # 播放音频
     # print(voice[0])
