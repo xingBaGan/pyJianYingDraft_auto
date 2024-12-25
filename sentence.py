@@ -7,30 +7,73 @@ from pydub import AudioSegment
 import shutil
 import math
 import asyncio
-from exports import export_video
+import random
+from jiangyin_api import export_video, create_draft, publish_to_web
 
 voice_track_name = '语音'
 bgm_track_name = '背景音乐'
-project_name = '吉姆·罗杰斯'
+project_name = '彼得·林奇'
 video_track_name = '视频'
 sentence_track_name = '文本'
 sentence_count = 30
 gap_rate = 0.5
 limit_len = 85
-start_index = 0
-total_project_count = 5
-bg_random_index = 2
+start_project_index = 2
+total_project_count = 1
+bg_random_index = 3
 reverse_flag = 1
 volume = 0.2
 export_filename = 'data.json'
 export_folder = 'I:\\福利'
+draft_folder = 'I:\\uploads_jianying\\JianyingPro Drafts'
+author_desc = '''
+1969年加入富达管理研究公司（Fidelity Investments）成为研究员，1977年成为麦哲伦基金（Magellan Fund）的基金经理人，1990年5月主动辞去基金经理人的职务。在彼得·林奇管理麦哲伦基金的13年间，基金管理的资产从2000万美元增长至140亿美元，基金投资人超过100万人，成为富达的旗舰基金，年平均复利报酬率达29.2%。林奇强调投资者应该投资自己了解的行业和公司，通过深入了解公司的业务、产品和市场，可以更好地判断其投资价值。他还特别关注那些被市场忽视的小公司，认为这些公司往往具有巨大的成长潜力。
+'''
 
 save_base_path = os.path.join(os.path.dirname(__file__), project_name)
 
 data_path = os.path.join(save_base_path, export_filename)
-def tts(text, index):
+
+async def main():
+    asset_dir = os.path.join(os.path.dirname(__file__), project_name)
+    base_dir = os.path.dirname(__file__)
+    bg_dir = os.path.join(os.path.dirname(__file__), 'bgm')
+    bg_list = os.listdir(bg_dir)
+    bg_path = os.path.join(bg_dir, bg_list[bg_random_index])
     if not os.path.exists(save_base_path):
         os.makedirs(save_base_path)
+    if not os.path.exists(data_path):
+        with open(data_path, 'w', encoding='utf-8') as f:
+            json.dump([], f)
+
+    # 读取json 文件
+    with open(os.path.join(base_dir, f"{project_name}.json"), "r", encoding="utf-8") as f:
+        sentences = json.load(f)
+
+    for i in range(start_project_index, start_project_index + total_project_count):
+        # 创建剪映草稿
+        script = draft.Script_file(1920, 1080) # 1080x1080分辨率
+
+        # 添加音频、视频和文本轨道
+        script.add_track(draft.Track_type.audio, voice_track_name) \
+            .add_track(draft.Track_type.audio, bgm_track_name) \
+            .add_track(draft.Track_type.video, video_track_name) \
+            .add_track(draft.Track_type.text, sentence_track_name)
+        draft_name = f"{project_name}{i+1}"
+
+        sentences_list = sentences[i * sentence_count:(i + 1) * sentence_count]
+        await create_draft_by_yingdao(draft_name, i, sentences_list)
+        await edit_project(script, sentences_list, asset_dir, i, bg_path, draft_name)
+        # print('------exporting---------')
+        await export_video_by_yingdao(draft_name, i)
+        await publish_to_web_by_yingdao(i, author_desc)
+
+async def publish_to_web_by_yingdao(i, author_desc):
+    data = get_data_item(i)
+    data["author_desc"] = author_desc
+    await publish_to_web(data)
+
+def tts(text, index):
     audio_path = os.path.join(save_base_path, f"audio_{index}.wav")
     # 如果存在，直接返回
     if os.path.exists(audio_path):
@@ -51,32 +94,28 @@ def tts(text, index):
     shutil.copy(result[0], audio_path)
     return audio_path
 
-async def main():
-    asset_dir = os.path.join(os.path.dirname(__file__), project_name)
-    base_dir = os.path.dirname(__file__)
-    bg_dir = os.path.join(os.path.dirname(__file__), 'bgm')
-    bg_list = os.listdir(bg_dir)
-    bg_path = os.path.join(bg_dir, bg_list[bg_random_index])
+async def create_draft_by_yingdao(draft_name, id, sentences_list):
+    draft_folder_path = os.path.join(draft_folder, draft_name)
+    if os.path.exists(draft_folder_path):
+       return
+    await create_draft(draft_name)
+    random_index = random.randint(0, len(sentences_list) - 1)
+    data = {
+        "filename": f"{draft_name}.mp4",
+        "id": id,
+        "exported": False,
+        "published": False,
+        "sentence_list": sentences_list,
+        "title": f"{project_name}:{sentences_list[random_index]}",
+        "tag": [
+            project_name,
+        ]
+    }
+    save_data_item(data)
 
-    # 读取json 文件
-    with open(os.path.join(base_dir, f"{project_name}.json"), "r", encoding="utf-8") as f:
-        sentences = json.load(f)
-
-    for i in range(start_index, start_index + total_project_count):
-        # 创建剪映草稿
-        script = draft.Script_file(1920, 1080) # 1080x1080分辨率
-
-        # 添加音频、视频和文本轨道
-        script.add_track(draft.Track_type.audio, voice_track_name) \
-            .add_track(draft.Track_type.audio, bgm_track_name) \
-            .add_track(draft.Track_type.video, video_track_name) \
-            .add_track(draft.Track_type.text, sentence_track_name)
-
-        await edit_project(script, sentences, asset_dir, i, bg_path)
-
-async def edit_project(script, sentences, asset_dir, id, bg_path):
+async def edit_project(script, sentences, asset_dir, id, bg_path, draft_name):
     start_time = 0
-    for index, sentence in enumerate(sentences[id * sentence_count:(id + 1) * sentence_count]):
+    for index, sentence in enumerate(sentences):
         base_index = id * sentence_count  + index
         print(base_index, sentence)
         # 如果句子长度超过110
@@ -107,15 +146,12 @@ async def edit_project(script, sentences, asset_dir, id, bg_path):
         script.add_segment(text_segment)
         print(f'{base_index} 增加文本\n{audio_duration}s\n{sentence}')
         start_time += total_time
-
     # 创建图片
     sticker_material = draft.Video_material(os.path.join(asset_dir, 'bg.png'))
     script.add_material(sticker_material) # 随手添加素材是好习惯
     sticker_segment = draft.Video_segment(sticker_material, trange(0, script.duration))
     script.add_segment(sticker_segment)
-    
-    
-    
+
     # 添加背景音乐
     bgm_material = draft.Audio_material(bg_path)
     script.add_material(bgm_material)
@@ -134,23 +170,21 @@ async def edit_project(script, sentences, asset_dir, id, bg_path):
     rest_time = script_duration - (size - 1) * bgm_duration
     bgm_segment = draft.Audio_segment(bgm_material, trange(f"{(size - 1) * bgm_duration}s", f"{rest_time}s"), volume=volume)
     script.add_segment(bgm_segment, track_name=bgm_track_name)
-    dir_path = r"I:\\uploads_jianying\\JianyingPro Drafts"
-    draft_name = f"{project_name}{id+1}"
+    dir_path = draft_folder
     base_dir = os.path.join(dir_path, draft_name)
     # 保存草稿（覆盖掉原有的draft_content.json）
     script.dump(os.path.join(base_dir, "draft_content.json"))
-    export_path = os.path.join(export_folder, f"{draft_name}.mp4")
+    
     # 如果不存在，就创建
-    if not os.path.exists(data_path):
-        with open(data_path, 'w', encoding='utf-8') as f:
-            json.dump([], f)
-    data = {
-        "filename": f"{draft_name}.mp4",
-        "id": id,
-        "exported": False,
-    }
-    print(export_path, get_data_item(id))
-    if os.path.exists(export_path) or get_data_item(id)["exported"] == True:
+
+    # ctrl = draft.Jianying_controller()
+    # ctrl.export_draft(f"{project_name}{id+1}", "I:\\福利")
+
+async def export_video_by_yingdao(draft_name, id):
+    export_path = os.path.join(export_folder, f"{draft_name}.mp4")
+    data = get_data_item(id)
+    print(export_path, data)
+    if os.path.exists(export_path) or data["exported"] == True:
         data["exported"] = True
     else:
         print('-------------export---------')
@@ -161,8 +195,6 @@ async def edit_project(script, sentences, asset_dir, id, bg_path):
             print(e)
         
     save_data_item(data)
-    # ctrl = draft.Jianying_controller()
-    # ctrl.export_draft(f"{project_name}{id+1}", "I:\\福利")
 
 def get_data_item(id):
     with open(data_path, 'r', encoding='utf-8') as f:
