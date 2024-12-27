@@ -18,8 +18,8 @@ sentence_track_name = '文本'
 sentence_count = 30
 gap_rate = 0.5
 limit_len = 85
-start_project_index = 2
-total_project_count = 1
+start_project_index = 3
+total_project_count = 2
 bg_random_index = 3
 reverse_flag = 1
 volume = 0.2
@@ -66,21 +66,24 @@ async def main():
         await edit_project(script, sentences_list, asset_dir, i, bg_path, draft_name)
         # print('------exporting---------')
         await export_video_by_yingdao(draft_name, i)
-        await publish_to_web_by_yingdao(i, author_desc)
+        # await publish_to_web_by_yingdao(i, author_desc)
 
 async def publish_to_web_by_yingdao(i, author_desc):
     data = get_data_item(i)
     data["author_desc"] = author_desc
     await publish_to_web(data)
+    data["published"] = True
+    save_data_item(data)
 
 def tts(text, index):
     audio_path = os.path.join(save_base_path, f"audio_{index}.wav")
     # 如果存在，直接返回
+    voice_path = os.path.join(os.path.dirname(__file__), f"./voice/voice.MP3")
     if os.path.exists(audio_path):
         return audio_path
     client = Client("http://127.0.0.1:7860/")
     result = client.predict(
-            ref_audio_orig=handle_file('./voice/voice.MP3'),
+            ref_audio_orig=handle_file(voice_path),
             ref_text="",
             gen_text=text,
             model="F5-TTS",
